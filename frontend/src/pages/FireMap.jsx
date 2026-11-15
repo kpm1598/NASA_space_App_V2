@@ -180,7 +180,7 @@ export default function FireMap() {
   const [error, setError] = useState('')
   const [showModis, setShowModis] = useState(true)
   const [showViirs, setShowViirs] = useState(true)
-  const [viewMode, setViewMode] = useState('hex') // hex | intensity | sensor | cluster | globe
+  const [viewMode, setViewMode] = useState('globe') // globe | hex | intensity | sensor | cluster
   const [showFootprint, setShowFootprint] = useState(true)
   const [basemap, setBasemap] = useState('satellite')
   const [from, setFrom] = useState('')
