@@ -1,0 +1,16 @@
+Archived FIRMS data (real NASA observations, trimmed for the demo area of interest)
+
+Source: NASA FIRMS open per-country archive (firms.modaps.eosdis.nasa.gov),
+files modis_2025_India.csv (MODIS Collection 6.1) and
+viirs-snpp_2025_India.csv (VIIRS S-NPP 375 m), downloaded 2026-11-14.
+
+Trimming applied (nothing else was altered; all original fields and values
+are preserved in each row):
+  - Acquisition dates 2025-02-01 to 2025-04-30 only
+  - Area of interest bounding box: longitude 80.5-83.5 E, latitude 20-23 N
+    (Chhattisgarh-Odisha fire belt, central India)
+
+Rows: MODIS 2,440; VIIRS S-NPP 28,511; total 30,951.
+Full-India Feb-Apr 2025 archive counts before trimming: MODIS 59,874;
+VIIRS 412,409. Satellite hotspots are detected thermal anomalies, not
+confirmed ground-truth wildfires.
