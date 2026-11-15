@@ -8,7 +8,7 @@ import * as THREE from 'three'
 // FireMap.jsx — the tiers below are that exact scale, bucketed so each
 // tier can be one THREE.Points cloud with its own dot size.
 
-const EARTH_TEXTURE_URL = `${import.meta.env.BASE_URL}earth-blue-marble.jpg`
+const EARTH_TEXTURE_URL = 'https://unpkg.com/three-globe@2.31.0/example/img/earth-blue-marble.jpg'
 
 const TIERS = [
   { key: 'unknown', color: '#94a3b8', size: 0.017, test: (frp) => frp == null },
