@@ -69,19 +69,29 @@ const ATMO_FRAG = `
   }
 `
 
-export default function GlobeView({ points }) {
+export default function GlobeView({ points, onZoomToMap }) {
   const mountRef = useRef(null)
   const [webglFailed, setWebglFailed] = useState(false)
   // Mutable scene state shared between the mount effect and the points
-  // effect: rotation, drag state, and the points-rebuild callback.
+  // effect: rotation, drag state, camera zoom, and callbacks.
   const rig = useRef({
     spin: THREE.MathUtils.degToRad(-90 - START_LON),
     tilt: THREE.MathUtils.degToRad(START_LAT),
     dragging: false,
     lastX: 0,
     lastY: 0,
+    dist: 0,
+    distTarget: 0,
+    homeDist: 0,
+    pointers: new Map(),
+    pinchDist: 0,
     rebuildPoints: null,
+    onZoomToMap: null,
   })
+
+  useEffect(() => {
+    rig.current.onZoomToMap = onZoomToMap
+  }, [onZoomToMap])
 
   useEffect(() => {
     const mount = mountRef.current
@@ -186,7 +196,12 @@ export default function GlobeView({ points }) {
       renderer.setSize(w, h)
       camera.aspect = w / h
       // Fit the globe (r=1) to ~92% of the smaller viewport dimension.
-      camera.position.z = 1.09 / (Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * Math.min(1, camera.aspect))
+      state.homeDist = 1.09 / (Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * Math.min(1, camera.aspect))
+      if (!state.dist) {
+        state.dist = state.homeDist
+        state.distTarget = state.homeDist
+      }
+      state.distTarget = THREE.MathUtils.clamp(state.distTarget, state.homeDist * 0.45, state.homeDist * 1.35)
       camera.updateProjectionMatrix()
     }
     fitCamera()
@@ -194,15 +209,42 @@ export default function GlobeView({ points }) {
     ro.observe(mount)
 
     // Drag to rotate: horizontal drag spins, vertical drag tilts.
+    // Scroll wheel and two-finger pinch zoom the camera; zooming in past
+    // the closest stop hands control back to the flat map (Apple-Maps
+    // style: globe when far out, flat map when close in).
     const el = renderer.domElement
+    const minDist = () => state.homeDist * 0.45
+    const maxDist = () => state.homeDist * 1.35
     const onDown = (e) => {
+      state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (state.pointers.size === 2) {
+        const [a, b] = [...state.pointers.values()]
+        state.pinchDist = Math.hypot(a.x - b.x, a.y - b.y)
+      }
       state.dragging = true
       state.lastX = e.clientX
       state.lastY = e.clientY
       el.setPointerCapture?.(e.pointerId)
     }
     const onMove = (e) => {
-      if (!state.dragging) return
+      if (state.pointers.has(e.pointerId)) {
+        state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+        if (state.pointers.size === 2) {
+          const [a, b] = [...state.pointers.values()]
+          const d = Math.hypot(a.x - b.x, a.y - b.y)
+          if (state.pinchDist > 0 && d > 0) {
+            const ratio = state.pinchDist / d
+            if (ratio < 1 && state.distTarget <= minDist() + 1e-6) {
+              state.onZoomToMap?.()
+            } else {
+              state.distTarget = THREE.MathUtils.clamp(state.distTarget * ratio, minDist(), maxDist())
+            }
+          }
+          state.pinchDist = d
+          return
+        }
+      }
+      if (!state.dragging || state.pointers.size > 1) return
       const dx = e.clientX - state.lastX
       const dy = e.clientY - state.lastY
       state.lastX = e.clientX
@@ -210,10 +252,24 @@ export default function GlobeView({ points }) {
       state.spin += dx * 0.005
       state.tilt = THREE.MathUtils.clamp(state.tilt + dy * 0.0035, TILT_MIN, TILT_MAX)
     }
-    const onUp = () => { state.dragging = false }
+    const onUp = (e) => {
+      state.pointers.delete(e.pointerId)
+      if (state.pointers.size < 2) state.pinchDist = 0
+      if (state.pointers.size === 0) state.dragging = false
+    }
+    const onWheel = (e) => {
+      e.preventDefault()
+      const delta = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY
+      if (delta < 0 && state.distTarget <= minDist() + 1e-6) {
+        state.onZoomToMap?.()
+        return
+      }
+      state.distTarget = THREE.MathUtils.clamp(state.distTarget * Math.exp(delta * 0.0012), minDist(), maxDist())
+    }
     el.addEventListener('pointerdown', onDown)
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
+    el.addEventListener('wheel', onWheel, { passive: false })
 
     const autoRotate = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
     let raf = 0
@@ -225,6 +281,8 @@ export default function GlobeView({ points }) {
       if (autoRotate && !state.dragging) state.spin += SPIN_SPEED * dt
       spinGroup.rotation.y = state.spin
       tiltGroup.rotation.x = state.tilt
+      state.dist += (state.distTarget - state.dist) * Math.min(1, dt * 7)
+      camera.position.z = state.dist
       renderer.render(scene, camera)
     }
     raf = requestAnimationFrame(tick)
@@ -235,6 +293,7 @@ export default function GlobeView({ points }) {
       el.removeEventListener('pointerdown', onDown)
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
+      el.removeEventListener('wheel', onWheel)
       state.rebuildPoints = null
       scene.traverse((child) => {
         child.geometry?.dispose()
@@ -267,7 +326,7 @@ export default function GlobeView({ points }) {
         </p>
       )}
       <span className={`${chip} bottom-3 left-3`}>
-        Globe · Drag to rotate · {(points?.length ?? 0).toLocaleString('en-IN')} hotspots
+        Globe · Drag to rotate · Scroll to zoom · {(points?.length ?? 0).toLocaleString('en-IN')} hotspots
       </span>
       <span className="pointer-events-none absolute bottom-3 right-3 z-10 rounded-sm border border-cyan-300/25 bg-[#04060d]/85 px-2.5 py-1 font-mono text-[10px] tracking-[0.08em] text-slate-400">
         Earth texture: NASA Blue Marble

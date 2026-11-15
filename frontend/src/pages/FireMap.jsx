@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import {
   CircleMarker, MapContainer, Marker, Polygon, Popup, Rectangle,
-  ScaleControl, TileLayer, useMap,
+  ScaleControl, TileLayer, useMap, useMapEvents,
 } from 'react-leaflet'
 import { api } from '../services/api'
 import GlobeView from '../components/GlobeView'
@@ -138,6 +138,17 @@ const BASEMAPS = {
   },
 }
 
+// Zooming the flat map all the way out (to world level) hands over to
+// the 3D globe — the Apple-Maps gesture Kasim asked for. No buttons.
+function ZoomToGlobeWatcher({ onZoomOut }) {
+  useMapEvents({
+    zoomend(e) {
+      if (e.target.getZoom() <= 3) onZoomOut()
+    },
+  })
+  return null
+}
+
 function FitToData({ data, appliedArea }) {
   const map = useMap()
   useEffect(() => {
@@ -181,6 +192,11 @@ export default function FireMap() {
   const [showModis, setShowModis] = useState(true)
   const [showViirs, setShowViirs] = useState(true)
   const [viewMode, setViewMode] = useState('globe') // globe | hex | intensity | sensor | cluster
+  const lastFlatRef = useRef('hex')
+  useEffect(() => {
+    if (viewMode !== 'globe') lastFlatRef.current = viewMode
+  }, [viewMode])
+  const handleGlobeZoomToMap = useCallback(() => setViewMode(lastFlatRef.current), [])
   const [showFootprint, setShowFootprint] = useState(true)
   const [basemap, setBasemap] = useState('satellite')
   const [from, setFrom] = useState('')
@@ -416,13 +432,14 @@ export default function FireMap() {
               {viewMode === 'globe' ? 'Orthographic globe · Harmonized FIRMS hotspots' : 'Satellite basemap · Harmonized FIRMS hotspots'}
             </span>
             {viewMode === 'globe' ? (
-              <GlobeView points={points} />
+              <GlobeView points={points} onZoomToMap={handleGlobeZoomToMap} />
             ) : (
             <MapContainer center={[21.5, 82.0]} zoom={7} preferCanvas style={{ height: '72vh', width: '100%' }}>
               <TileLayer key={basemap} url={base.url} attribution={base.attribution} />
               {base.labels && <TileLayer url={base.labels} attribution="© Esri" opacity={0.85} />}
               <ScaleControl position="bottomleft" />
               <FitToData data={data} appliedArea={appliedArea} />
+              <ZoomToGlobeWatcher onZoomOut={() => setViewMode('globe')} />
               {appliedArea && (
                 <Rectangle
                   bounds={[[appliedArea.south, appliedArea.west], [appliedArea.north, appliedArea.east]]}
