@@ -69,17 +69,22 @@ const ATMO_FRAG = `
   }
 `
 
-export default function GlobeView({ points, onZoomToMap }) {
+export default function GlobeView({ points, onZoomToMap, center }) {
   const mountRef = useRef(null)
   const [webglFailed, setWebglFailed] = useState(false)
   // Mutable scene state shared between the mount effect and the points
-  // effect: rotation, drag state, camera zoom, and callbacks.
+  // effect: rotation, drag state, camera zoom, and callbacks. The globe
+  // opens facing `center` when handed one (the flat map's centre, so the
+  // zoom hand-off feels continuous), else the dataset AOI centre.
   const rig = useRef({
-    spin: THREE.MathUtils.degToRad(-90 - START_LON),
-    tilt: THREE.MathUtils.degToRad(START_LAT),
+    spin: THREE.MathUtils.degToRad(-90 - (center?.lon ?? START_LON)),
+    tilt: THREE.MathUtils.clamp(
+      THREE.MathUtils.degToRad(center?.lat ?? START_LAT), TILT_MIN, TILT_MAX),
     dragging: false,
     lastX: 0,
     lastY: 0,
+    spinVel: 0,
+    lastInteraction: 0,
     dist: 0,
     distTarget: 0,
     homeDist: 0,
@@ -215,6 +220,12 @@ export default function GlobeView({ points, onZoomToMap }) {
     const el = renderer.domElement
     const minDist = () => state.homeDist * 0.45
     const maxDist = () => state.homeDist * 1.35
+    // The lat/lon the globe currently faces, derived from the start
+    // orientation identities (spin = -90 - lon, tilt = lat).
+    const facingCentre = () => ({
+      lat: THREE.MathUtils.radToDeg(state.tilt),
+      lon: ((THREE.MathUtils.radToDeg(-90 - state.spin) + 540) % 360) - 180,
+    })
     const onDown = (e) => {
       state.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
       if (state.pointers.size === 2) {
@@ -222,6 +233,8 @@ export default function GlobeView({ points, onZoomToMap }) {
         state.pinchDist = Math.hypot(a.x - b.x, a.y - b.y)
       }
       state.dragging = true
+      state.spinVel = 0
+      state.lastInteraction = performance.now()
       state.lastX = e.clientX
       state.lastY = e.clientY
       el.setPointerCapture?.(e.pointerId)
@@ -235,12 +248,13 @@ export default function GlobeView({ points, onZoomToMap }) {
           if (state.pinchDist > 0 && d > 0) {
             const ratio = state.pinchDist / d
             if (ratio < 1 && state.distTarget <= minDist() + 1e-6) {
-              state.onZoomToMap?.()
+              state.onZoomToMap?.(facingCentre())
             } else {
               state.distTarget = THREE.MathUtils.clamp(state.distTarget * ratio, minDist(), maxDist())
             }
           }
           state.pinchDist = d
+          state.lastInteraction = performance.now()
           return
         }
       }
@@ -249,19 +263,27 @@ export default function GlobeView({ points, onZoomToMap }) {
       const dy = e.clientY - state.lastY
       state.lastX = e.clientX
       state.lastY = e.clientY
-      state.spin += dx * 0.005
-      state.tilt = THREE.MathUtils.clamp(state.tilt + dy * 0.0035, TILT_MIN, TILT_MAX)
+      // Grab-the-earth feel: the same pixel drag rotates less when the
+      // camera is close, so the surface point under the cursor tracks it.
+      const grabScale = state.homeDist ? state.dist / state.homeDist : 1
+      const spinDelta = dx * 0.005 * grabScale
+      state.spin += spinDelta
+      state.spinVel = spinDelta * 60 // rad/s estimate, for release momentum
+      state.tilt = THREE.MathUtils.clamp(state.tilt + dy * 0.0035 * grabScale, TILT_MIN, TILT_MAX)
+      state.lastInteraction = performance.now()
     }
     const onUp = (e) => {
       state.pointers.delete(e.pointerId)
       if (state.pointers.size < 2) state.pinchDist = 0
       if (state.pointers.size === 0) state.dragging = false
+      state.lastInteraction = performance.now()
     }
     const onWheel = (e) => {
       e.preventDefault()
+      state.lastInteraction = performance.now()
       const delta = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY
       if (delta < 0 && state.distTarget <= minDist() + 1e-6) {
-        state.onZoomToMap?.()
+        state.onZoomToMap?.(facingCentre())
         return
       }
       state.distTarget = THREE.MathUtils.clamp(state.distTarget * Math.exp(delta * 0.0012), minDist(), maxDist())
@@ -278,7 +300,15 @@ export default function GlobeView({ points, onZoomToMap }) {
       raf = requestAnimationFrame(tick)
       const dt = Math.min(0.05, (now - last) / 1000)
       last = now
-      if (autoRotate && !state.dragging) state.spin += SPIN_SPEED * dt
+      if (!state.dragging) {
+        if (Math.abs(state.spinVel) > 1e-4) {
+          // Flick momentum: glide on after release, friction eases it out.
+          state.spin += state.spinVel * dt
+          state.spinVel *= Math.exp(-2.2 * dt)
+        } else if (autoRotate && now - state.lastInteraction > 4000) {
+          state.spin += SPIN_SPEED * dt
+        }
+      }
       spinGroup.rotation.y = state.spin
       tiltGroup.rotation.x = state.tilt
       state.dist += (state.distTarget - state.dist) * Math.min(1, dt * 7)

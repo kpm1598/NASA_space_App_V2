@@ -143,16 +143,26 @@ const BASEMAPS = {
 function ZoomToGlobeWatcher({ onZoomOut }) {
   useMapEvents({
     zoomend(e) {
-      if (e.target.getZoom() <= 3) onZoomOut()
+      if (e.target.getZoom() <= 3) {
+        const c = e.target.getCenter()
+        onZoomOut({ lat: c.lat, lon: c.lng })
+      }
     },
   })
   return null
 }
 
-function FitToData({ data, appliedArea }) {
+function FitToData({ data, appliedArea, returnCentreRef }) {
   const map = useMap()
   useEffect(() => {
     if (!data) return
+    if (returnCentreRef?.current) {
+      // Returning from the globe: open where the globe was facing.
+      const c = returnCentreRef.current
+      returnCentreRef.current = null
+      map.setView([c.lat, c.lon], 5)
+      return
+    }
     if (appliedArea) {
       map.fitBounds(
         [[appliedArea.south, appliedArea.west], [appliedArea.north, appliedArea.east]],
@@ -196,7 +206,16 @@ export default function FireMap() {
   useEffect(() => {
     if (viewMode !== 'globe') lastFlatRef.current = viewMode
   }, [viewMode])
-  const handleGlobeZoomToMap = useCallback(() => setViewMode(lastFlatRef.current), [])
+  const [globeCentre, setGlobeCentre] = useState(null)
+  const returnCentreRef = useRef(null)
+  const handleGlobeZoomToMap = useCallback((centre) => {
+    if (centre) returnCentreRef.current = centre
+    setViewMode(lastFlatRef.current)
+  }, [])
+  const handleMapZoomToGlobe = useCallback((centre) => {
+    if (centre) setGlobeCentre(centre)
+    setViewMode('globe')
+  }, [])
   const [showFootprint, setShowFootprint] = useState(true)
   const [basemap, setBasemap] = useState('satellite')
   const [from, setFrom] = useState('')
@@ -432,14 +451,14 @@ export default function FireMap() {
               {viewMode === 'globe' ? 'Orthographic globe · Harmonized FIRMS hotspots' : 'Satellite basemap · Harmonized FIRMS hotspots'}
             </span>
             {viewMode === 'globe' ? (
-              <GlobeView points={points} onZoomToMap={handleGlobeZoomToMap} />
+              <GlobeView points={points} onZoomToMap={handleGlobeZoomToMap} center={globeCentre} />
             ) : (
             <MapContainer center={[21.5, 82.0]} zoom={7} preferCanvas style={{ height: '72vh', width: '100%' }}>
               <TileLayer key={basemap} url={base.url} attribution={base.attribution} />
               {base.labels && <TileLayer url={base.labels} attribution="© Esri" opacity={0.85} />}
               <ScaleControl position="bottomleft" />
-              <FitToData data={data} appliedArea={appliedArea} />
-              <ZoomToGlobeWatcher onZoomOut={() => setViewMode('globe')} />
+              <FitToData data={data} appliedArea={appliedArea} returnCentreRef={returnCentreRef} />
+              <ZoomToGlobeWatcher onZoomOut={handleMapZoomToGlobe} />
               {appliedArea && (
                 <Rectangle
                   bounds={[[appliedArea.south, appliedArea.west], [appliedArea.north, appliedArea.east]]}
