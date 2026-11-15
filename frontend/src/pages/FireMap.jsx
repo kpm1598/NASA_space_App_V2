@@ -5,6 +5,7 @@ import {
   ScaleControl, TileLayer, useMap,
 } from 'react-leaflet'
 import { api } from '../services/api'
+import GlobeView from '../components/GlobeView'
 
 const PALETTE = ['#f97316', '#38bdf8', '#a78bfa', '#34d399', '#facc15', '#fb7185', '#22d3ee', '#e879f9']
 const FLAME_COUNT = 150
@@ -121,7 +122,7 @@ const BASEMAPS = {
     label: 'Satellite',
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
-    labels: 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png',
+    labels: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
   },
   streets: {
     label: 'Streets',
@@ -131,8 +132,8 @@ const BASEMAPS = {
   },
   dark: {
     label: 'Dark',
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    attribution: '© OpenStreetMap contributors © CARTO',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles © Esri — Source: Esri, HERE, Garmin, © OpenStreetMap contributors, and the GIS User Community',
     labels: null,
   },
 }
@@ -179,7 +180,7 @@ export default function FireMap() {
   const [error, setError] = useState('')
   const [showModis, setShowModis] = useState(true)
   const [showViirs, setShowViirs] = useState(true)
-  const [viewMode, setViewMode] = useState('hex') // hex | intensity | sensor | cluster
+  const [viewMode, setViewMode] = useState('hex') // hex | intensity | sensor | cluster | globe
   const [showFootprint, setShowFootprint] = useState(true)
   const [basemap, setBasemap] = useState('satellite')
   const [from, setFrom] = useState('')
@@ -307,6 +308,7 @@ export default function FireMap() {
               <button onClick={() => setViewMode('intensity')} className={segmentBtn(viewMode === 'intensity')}>Fire intensity</button>
               <button onClick={() => setViewMode('sensor')} className={segmentBtn(viewMode === 'sensor')}>Sensor</button>
               <button onClick={() => setViewMode('cluster')} className={segmentBtn(viewMode === 'cluster')}>Cluster</button>
+              <button onClick={() => setViewMode('globe')} className={segmentBtn(viewMode === 'globe')}>Globe</button>
             </div>
             <h3 className="hud-label mb-2.5 mt-5">Base map</h3>
             <div className="flex flex-wrap gap-2">
@@ -347,6 +349,15 @@ export default function FireMap() {
                   <p className="text-slate-300">Points sharing a colour belong to the same candidate activity cluster.</p>
                   <p><span className="text-slate-400">●</span> Grey points are isolated observations.</p>
                   <p className="text-slate-400">A cluster is a group of related detections — not one confirmed wildfire.</p>
+                </>
+              )}
+              {viewMode === 'globe' && (
+                <>
+                  <p><span style={{ color: '#facc15' }}>●</span> Low — under 5 MW</p>
+                  <p><span style={{ color: '#fb923c' }}>●</span> Moderate — 5 to 20 MW</p>
+                  <p><span style={{ color: '#f97316' }}>●</span> High — 20 to 50 MW</p>
+                  <p><span style={{ color: '#ef4444' }}>●</span> Extreme — over 50 MW</p>
+                  <p className="text-slate-400">Dot size also grows with FRP. Drag the globe to rotate it — detections on the far side of the Earth are hidden until they rotate into view.</p>
                 </>
               )}
               <p className="pt-1 text-slate-400">🔥 Flame = one of the {FLAME_COUNT} strongest detections currently in view.</p>
@@ -392,7 +403,7 @@ export default function FireMap() {
               Showing {points.length.toLocaleString('en-IN')} of {data.total_matching.toLocaleString('en-IN')} matching observations
               {viewMode === 'hex' && hexes.length > 0 && <> · grouped into <strong className="text-orange-300">{hexes.length} hex cells</strong></>}
               {maxFrp != null && <> · strongest in view: <strong className="text-orange-300">{maxFrp} MW</strong></>}
-              {flames.length > 0 && <> · {flames.length} flame markers shown</>}
+              {viewMode !== 'globe' && flames.length > 0 && <> · {flames.length} flame markers shown</>}
               {data.capped && <span className="text-amber-400"> · points are capped at {data.cap.toLocaleString('en-IN')} for browser performance — narrow the dates or area to see a period in full.</span>}
             </p>
           )}
@@ -402,11 +413,14 @@ export default function FireMap() {
             <span className="pointer-events-none absolute bottom-0 left-0 z-[650] h-5 w-5 border-b-2 border-l-2 border-orange-400" />
             <span className="pointer-events-none absolute bottom-0 right-0 z-[650] h-5 w-5 border-b-2 border-r-2 border-orange-400" />
             <span className="pointer-events-none absolute left-1/2 top-3 z-[650] -translate-x-1/2 whitespace-nowrap rounded-sm border border-cyan-300/40 bg-[#04060d]/85 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.22em] text-cyan-200">
-              Satellite basemap · Harmonized FIRMS hotspots
+              {viewMode === 'globe' ? 'Orthographic globe · Harmonized FIRMS hotspots' : 'Satellite basemap · Harmonized FIRMS hotspots'}
             </span>
+            {viewMode === 'globe' ? (
+              <GlobeView points={points} />
+            ) : (
             <MapContainer center={[21.5, 82.0]} zoom={7} preferCanvas style={{ height: '72vh', width: '100%' }}>
               <TileLayer key={basemap} url={base.url} attribution={base.attribution} />
-              {base.labels && <TileLayer url={base.labels} attribution="© CARTO" opacity={0.85} />}
+              {base.labels && <TileLayer url={base.labels} attribution="© Esri" opacity={0.85} />}
               <ScaleControl position="bottomleft" />
               <FitToData data={data} appliedArea={appliedArea} />
               {appliedArea && (
@@ -461,6 +475,7 @@ export default function FireMap() {
                 </Marker>
               ))}
             </MapContainer>
+            )}
           </div>
           <p className="mt-2 font-mono text-[11px] leading-relaxed text-slate-500">
             Each detection is one satellite-observed thermal anomaly (a hotspot), not a confirmed ground-truth wildfire.

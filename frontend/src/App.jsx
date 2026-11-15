@@ -69,11 +69,11 @@ export default function App() {
       {/* ── Left telemetry sidebar ─────────────────────────────────── */}
       <aside className="sticky top-0 hidden h-screen w-[268px] shrink-0 flex-col border-r border-cyan-400/10 bg-[#050a14]/90 backdrop-blur md:flex">
         <div className="border-b border-cyan-400/10 px-5 pb-4 pt-5">
-          <div className="hud-label mb-1.5">Orbital Fire Watch</div>
+          <div className="hud-label mb-1.5" style={{ letterSpacing: '0.14em' }}>Orbital Fire Watch</div>
           <div className="font-display text-[34px] font-bold leading-none tracking-wide text-slate-50">
             BLACK<span className="text-orange-500 glow-orange">CAT</span>
           </div>
-          <div className="mt-2 font-mono text-[10px] uppercase leading-relaxed tracking-[0.18em] text-slate-400">
+          <div className="mt-2 font-mono text-[9.5px] uppercase leading-relaxed tracking-[0.08em] text-slate-400">
             Multi-Satellite Fire Intelligence<br />MODIS + VIIRS Harmonization
           </div>
         </div>
